@@ -60,32 +60,36 @@ namespace Org.Apache.Rocketmq
 
         protected override async Task Start()
         {
-            if (null == _messageListener)
+            try
             {
-                throw new System.Exception("Bad configuration: message listener is required");
-            }
-
-            await base.Start();
-
-            // Step-1: Resolve topic routes
-            List<Task<TopicRouteData>> queryRouteTasks = new List<Task<TopicRouteData>>();
-            foreach (var item in _subscriptionExpressions)
-            {
-                queryRouteTasks.Add(GetRouteData(item.Key));
-            }
-            await Task.WhenAll(queryRouteTasks);
+                State = State.Starting;
+                await base.Start();
+                State = State.Running;
+                // Step-1: Resolve topic routes
+                List<Task<TopicRouteData>> queryRouteTasks = new List<Task<TopicRouteData>>();
+                foreach (var item in _subscriptionExpressions)
+                {
+                    queryRouteTasks.Add(GetRouteData(item.Key));
+                }
+                await Task.WhenAll(queryRouteTasks);
             
 
-            // Step-2: Scan load assignments that are assigned to current client
-            Schedule(async () =>
-            {
-                await ScanLoadAssignments();
-            }, 10, _scanAssignmentCTS.Token);
+                // Step-2: Scan load assignments that are assigned to current client
+                Schedule(async () =>
+                {
+                    await ScanLoadAssignments();
+                }, 10, _scanAssignmentCTS.Token);
 
-            Schedule(() =>
+                Schedule(() =>
+                {
+                    ScanExpiredProcessQueue();
+                }, 10, _scanExpiredProcessQueueCTS.Token);
+            }
+            catch (Exception)
             {
-                ScanExpiredProcessQueue();
-            }, 10, _scanExpiredProcessQueueCTS.Token);
+                State = State.Failed;
+                throw;
+            }
         }
         
         private void Schedule(Action action, int seconds, CancellationToken token)
@@ -263,11 +267,12 @@ namespace Org.Apache.Rocketmq
                     {
                         var consumerResult = await _messageListener.Consume(item).ConfigureAwait(false);
                         
-                        Console.WriteLine($"Received messages from {item.MessageId}, result={consumerResult}");
+                        Console.WriteLine($"Received messages from {item.ToString()}, result={consumerResult}");
 
-                        if (consumerResult== ConsumeResult.SUCCESS)
+                        if (consumerResult == ConsumeResult.SUCCESS)
+                        {
                             await Ack(item).ConfigureAwait(false);
-
+                        }
                         else
                         {
                             var invisibleDuration = _pushSubscriptionSettings.GetRetryPolicy().GetNextAttemptDelay(item.DeliveryAttempt);
@@ -313,19 +318,17 @@ namespace Org.Apache.Rocketmq
                 MessageId = messageView.MessageId
             };
         }
-        
+
         private async Task Ack(MessageView messageView)
         {
             if (State.Running != State)
-            {
                 throw new InvalidOperationException("push consumer is not running");
-            }
 
             var request = WrapAckMessageRequest(messageView);
             var invocation = await ClientManager.AckMessage(messageView.MessageQueue.Broker.Endpoints, request, ClientConfig.RequestTimeout);
             StatusChecker.Check(invocation.Response.Status, request, invocation.RequestId);
         }
-        
+
         private rmq.AckMessageRequest WrapAckMessageRequest(MessageView messageView)
         {
             var topicResource = new rmq.Resource

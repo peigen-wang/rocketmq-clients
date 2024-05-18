@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <PackageId>PenGen.RocketMQ.Client</PackageId>
-        <PackageVersion>1.0.0</PackageVersion>
+        <PackageVersion>1.0.2</PackageVersion>
         <Version>$(PackageVersion)</Version>
 
         <Authors>Peigen</Authors>
@@ -11,7 +11,9 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Description>.NET Client for Apache RocketMQ</Description>
-        
+        <PackageProjectUrl>https://github.com/peigen-wang/rocketmq-clients</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/peigen-wang/rocketmq-clients</RepositoryUrl>
+        <PackageIcon>logo.png</PackageIcon>
 
         <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
 

@@ -15,13 +15,16 @@
  * limitations under the License.
  */
 
+using System.Threading;
+
 namespace examples
 {
     internal static class QuickStart
     {
         public static void Main()
         {
-            // ProducerNormalMessageExample.QuickStart().Wait();
+            ProducerNormalMessageExample.QuickStart().Wait();
+            Thread.Sleep(3000);
             // ProducerFifoMessageExample.QuickStart().Wait();
             // ProducerDelayMessageExample.QuickStart().Wait();
             // ProducerTransactionMessageExample.QuickStart().Wait();
