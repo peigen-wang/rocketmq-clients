@@ -31,20 +31,20 @@ namespace examples
         {
             // Enable the switch if you use .NET Core 3.1 and want to disable TLS/SSL.
             // AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-            const string accessKey = "yourAccessKey";
-            const string secretKey = "yourSecretKey";
+            const string accessKey = "";
+            const string secretKey = "";
 
             // Credential provider is optional for client configuration.
             var credentialsProvider = new StaticSessionCredentialsProvider(accessKey, secretKey);
-            const string endpoints = "foobar.com:8080";
+            const string endpoints = "192.168.0.39:8081";
             var clientConfig = new ClientConfig.Builder()
                 .SetEndpoints(endpoints)
                 .SetCredentialsProvider(credentialsProvider)
                 .Build();
 
             // Add your subscriptions.
-            const string consumerGroup = "yourConsumerGroup";
-            const string topic = "yourTopic";
+            const string consumerGroup = "local-GROUP_PAYMENT_CENTER";
+            const string topic = "local-TOPIC_PAYMENT_PAY";
             var subscription = new Dictionary<string, FilterExpression>
                 { { topic, new FilterExpression("*") } };
             // In most case, you don't need to create too many consumers, single pattern is recommended.
@@ -60,9 +60,9 @@ namespace examples
                 var messageViews = await simpleConsumer.Receive(16, TimeSpan.FromSeconds(15));
                 foreach (var message in messageViews)
                 {
-                    Logger.Info(
-                        $"Received a message, topic={message.Topic}, message-id={message.MessageId}, body-size={message.Body.Length}");
-                    await simpleConsumer.Ack(message);
+                    Console.WriteLine($"Received a message, topic={message.Topic}, message-id={message.MessageId}, body-size={message.Body.Length}");
+                    Logger.Info($"Received a message, topic={message.Topic}, message-id={message.MessageId}, body-size={message.Body.Length}");
+                    // await simpleConsumer.Ack(message);
                     Logger.Info($"Message is acknowledged successfully, message-id={message.MessageId}");
                     // await simpleConsumer.ChangeInvisibleDuration(message, TimeSpan.FromSeconds(15));
                     // Logger.Info($"Changing message invisible duration successfully, message=id={message.MessageId}");

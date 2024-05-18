@@ -2,10 +2,16 @@
     <ItemGroup>
         <ProjectReference Include="..\rocketmq-client-csharp\rocketmq-client-csharp.csproj" />
     </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="Serilog" Version="3.1.1" />
+    </ItemGroup>
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFrameworks>net5.0;netcoreapp3.1</TargetFrameworks>
         <ServerGarbageCollection>true</ServerGarbageCollection>
+        <TargetFramework>net6.0</TargetFramework>
     </PropertyGroup>
+
+   
+   
 </Project>

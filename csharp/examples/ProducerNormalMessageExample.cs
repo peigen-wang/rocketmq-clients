@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+using System;
 using System.Text;
 using System.Threading.Tasks;
 using NLog;
@@ -30,18 +31,19 @@ namespace examples
         {
             // Enable the switch if you use .NET Core 3.1 and want to disable TLS/SSL.
             // AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-            const string accessKey = "yourAccessKey";
-            const string secretKey = "yourSecretKey";
+            const string accessKey = "";
+            const string secretKey = "";
 
             // Credential provider is optional for client configuration.
             var credentialsProvider = new StaticSessionCredentialsProvider(accessKey, secretKey);
-            const string endpoints = "foobar.com:8080";
+            const string endpoints = "192.168.0.39:8081";
             var clientConfig = new ClientConfig.Builder()
                 .SetEndpoints(endpoints)
-                .SetCredentialsProvider(credentialsProvider)
+                // .SetCredentialsProvider(credentialsProvider)
                 .Build();
-
-            const string topic = "yourNormalTopic";
+            
+            
+            const string topic = "local-TOPIC_PAYMENT_PAY";
             // In most case, you don't need to create too many producers, single pattern is recommended.
             // Producer here will be closed automatically.
             var producer = await new Producer.Builder()
@@ -64,7 +66,7 @@ namespace examples
 
             var sendReceipt = await producer.Send(message);
             Logger.Info($"Send message successfully, messageId={sendReceipt.MessageId}");
-
+            Console.WriteLine($"Send message successfully, messageId={sendReceipt.MessageId}");
             // Close the producer if you don't need it anymore.
             await producer.DisposeAsync();
         }

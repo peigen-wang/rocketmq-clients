@@ -27,6 +27,8 @@ namespace examples
             // ProducerTransactionMessageExample.QuickStart().Wait();
             // SimpleConsumerExample.QuickStart().Wait();
             // ProducerBenchmark.QuickStart().Wait();
+            PushConsumerExample.QuickStart().Wait();
+
         }
     }
 }

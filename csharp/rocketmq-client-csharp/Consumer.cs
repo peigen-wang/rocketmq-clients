@@ -103,5 +103,24 @@ namespace Org.Apache.Rocketmq
                 InvisibleDuration = Duration.FromTimeSpan(invisibleDuration)
             };
         }
+        
+        
+        protected Proto.ReceiveMessageRequest WrapReceiveMessageRequest(int batchSize, MessageQueue mq,
+            FilterExpression filterExpression, TimeSpan longPollingTimeout)
+        {
+            var group = new Proto.Resource
+            {
+                Name = ConsumerGroup
+            };
+            return new Proto.ReceiveMessageRequest
+            {
+                Group = group,
+                MessageQueue = mq.ToProtobuf(),
+                FilterExpression = WrapFilterExpression(filterExpression),
+                LongPollingTimeout = Duration.FromTimeSpan(longPollingTimeout),
+                BatchSize = batchSize,
+                AutoRenew = true
+            };
+        }
     }
 }
