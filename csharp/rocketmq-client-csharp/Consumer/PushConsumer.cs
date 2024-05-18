@@ -273,7 +273,7 @@ namespace Org.Apache.Rocketmq
                             var invisibleDuration = _pushSubscriptionSettings.GetRetryPolicy().GetNextAttemptDelay(item.DeliveryAttempt);
                             
                             Console.WriteLine(invisibleDuration);
-                            await ChangeInvisibleDuration(item, TimeSpan.FromSeconds(1));
+                            await ChangeInvisibleDuration(item, invisibleDuration);
                         }
                     }
                 }
