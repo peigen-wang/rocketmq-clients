@@ -77,7 +77,14 @@ namespace Org.Apache.Rocketmq
                 // Step-2: Scan load assignments that are assigned to current client
                 Schedule(async () =>
                 {
-                    await ScanLoadAssignments();
+                    try
+                    {
+                        await ScanLoadAssignments();
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Error(e, $"Exception raised while scanning the load assignments, clientId={ClientId}");
+                    }
                 }, 10, _scanAssignmentCTS.Token);
 
                 Schedule(() =>
@@ -88,6 +95,7 @@ namespace Org.Apache.Rocketmq
             catch (Exception)
             {
                 State = State.Failed;
+                await Shutdown();
                 throw;
             }
         }
