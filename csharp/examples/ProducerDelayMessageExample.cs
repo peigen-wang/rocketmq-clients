@@ -31,18 +31,18 @@ namespace examples
         {
             // Enable the switch if you use .NET Core 3.1 and want to disable TLS/SSL.
             // AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-            const string accessKey = "yourAccessKey";
-            const string secretKey = "yourSecretKey";
+            const string accessKey = "";
+            const string secretKey = "";
 
             // Credential provider is optional for client configuration.
             var credentialsProvider = new StaticSessionCredentialsProvider(accessKey, secretKey);
-            const string endpoints = "foobar.com:8080";
+            const string endpoints = "192.168.0.39:8081";
             var clientConfig = new ClientConfig.Builder()
                 .SetEndpoints(endpoints)
-                .SetCredentialsProvider(credentialsProvider)
+                // .SetCredentialsProvider(credentialsProvider)
                 .Build();
 
-            const string topic = "yourDelayTopic";
+            const string topic = "dev-TOPIC_TRADE_ORDER_DELAY";
             // In most case, you don't need to create too many producers, single pattern is recommended.
             // Producer here will be closed automatically.
             var producer = await new Producer.Builder()
@@ -61,12 +61,12 @@ namespace examples
                 .SetTag(tag)
                 // You could set multiple keys for the single message actually.
                 .SetKeys("yourMessageKey-2f00df144e48")
-                .SetDeliveryTimestamp(DateTime.Now + TimeSpan.FromSeconds(30))
+                .SetDeliveryTimestamp(DateTime.Now.AddMicroseconds(30))
                 .Build();
 
             var sendReceipt = await producer.Send(message);
             Logger.Info($"Send message successfully, sendReceipt={sendReceipt}");
-
+            Console.WriteLine($"Send message successfully, messageId={sendReceipt.MessageId}");
             // Close the producer if you don't need it anymore.
             await producer.DisposeAsync();
         }

@@ -33,12 +33,12 @@ namespace Org.Apache.Rocketmq
         private readonly ConcurrentDictionary<string /* topic */, SubscriptionLoadBalancer> _subscriptionRouteDataCache = new ConcurrentDictionary<string, SubscriptionLoadBalancer>();
         private readonly ConcurrentDictionary<string /* topic */, FilterExpression> _subscriptionExpressions;
         private static readonly Logger Logger = MqLogManager.Instance.GetCurrentClassLogger();
-        private readonly PushSubscriptionSettings _pushSubscriptionSettings;
+        public readonly PushSubscriptionSettings _pushSubscriptionSettings;
         private readonly string _consumerGroup;
-        private IMessageListener _messageListener;
+        public IMessageListener _messageListener;
         private CancellationTokenSource _scanAssignmentCTS;
         private ConcurrentDictionary<string, List<rmq::Assignment>> _topicAssignmentsMap;
-        private ConcurrentDictionary<rmq::Assignment, ProcessQueue> _processQueueMap;
+        private ConcurrentDictionary<MessageQueue, ProcessQueue> _processQueueMap;
         private CancellationTokenSource _scanExpiredProcessQueueCTS;
         private readonly int _maxCacheMessageCount;
 
@@ -51,7 +51,7 @@ namespace Org.Apache.Rocketmq
             _pushSubscriptionSettings = new PushSubscriptionSettings(ClientId, Endpoints, consumerGroup,clientConfig.RequestTimeout, _subscriptionExpressions);
             
             _topicAssignmentsMap = new ConcurrentDictionary<string, List<rmq::Assignment>>();
-            _processQueueMap = new ConcurrentDictionary<rmq::Assignment, ProcessQueue>();
+            _processQueueMap = new ConcurrentDictionary<MessageQueue, ProcessQueue>();
             _scanAssignmentCTS = new CancellationTokenSource();
             _scanExpiredProcessQueueCTS = new CancellationTokenSource();
         }
@@ -85,12 +85,8 @@ namespace Org.Apache.Rocketmq
                     {
                         Logger.Error(e, $"Exception raised while scanning the load assignments, clientId={ClientId}");
                     }
-                }, 10, _scanAssignmentCTS.Token);
-
-                Schedule(() =>
-                {
-                    ScanExpiredProcessQueue();
-                }, 10, _scanExpiredProcessQueueCTS.Token);
+                }, 5, _scanAssignmentCTS.Token);
+                
             }
             catch (Exception)
             {
@@ -126,21 +122,71 @@ namespace Org.Apache.Rocketmq
 
         private async Task ScanLoadAssignments()
         {
-            List<Task<List<rmq::Assignment>>> tasks = new List<Task<List<rmq::Assignment>>>();
             foreach (var item in _subscriptionExpressions)
             {
-                tasks.Add(ScanLoadAssignment(item.Key, _consumerGroup));
-            }
-            var result = await Task.WhenAll(tasks);
+                var topic = item.Key;
+                _topicAssignmentsMap.TryGetValue(topic, out var existing);
+                var future = await ScanLoadAssignment(item.Key, _consumerGroup);
+                if(future==null || !future.Any()) continue;
 
-            foreach (var assignments in result)
-            {
-                if (assignments.Count == 0)
-                    continue;
-
-                CheckAndUpdateAssignments(assignments);
+                if (!future.Equals(existing))
+                {
+                    _topicAssignmentsMap.TryAdd(topic, future);
+                }
+                // Process queue may be dropped, need to be synchronized anyway.
+                SyncProcessQueue(topic, future, item.Value);
             }
         }
+        
+        private void SyncProcessQueue(string topic, List<rmq::Assignment> assignments, FilterExpression filterExpression)
+        {
+            if (assignments.Count == 0)
+                return;
+
+            var latest = new HashSet<MessageQueue>();
+            foreach (var assignment in assignments)
+            {
+                latest.Add(new MessageQueue(assignment.MessageQueue));
+            }
+
+            var activeMqs = new HashSet<MessageQueue>();
+            
+            foreach (var item in _processQueueMap)
+            {
+               var mq = item.Key;
+               var pq = item.Value;
+                if (!topic.Equals(mq.Topic)) {
+                    continue;
+                }
+
+                if (!latest.Contains(mq))
+                {
+                    _processQueueMap.Remove(item.Key, out pq);
+                    if (pq != null) pq.Dropped = true;
+                    continue;
+                }
+
+                if (pq.Expired()) {
+                    _processQueueMap.Remove(item.Key, out pq);
+                    if (pq != null) pq.Dropped = true;
+                    continue;
+                }
+                activeMqs.Add(mq);
+            }
+
+            foreach (var mq in latest)
+            {
+                if (activeMqs.Contains(mq)) {
+                    continue;
+                }
+
+                var processQueue = new ProcessQueue(this, mq, filterExpression);
+                _processQueueMap.TryAdd(mq, processQueue);
+                processQueue.FetchMessageImmediately();
+            }
+        }
+
+        
         
         /// <summary>
         /// 查询当前消费者的主题分配的路由信息，返回的分配结果由服务器端负载均衡器决定
@@ -168,15 +214,12 @@ namespace Org.Apache.Rocketmq
           
             try
             {
-                Console.WriteLine("Start to scan load assignments from server");
                 var invocation = await ClientManager.QueryAssignment(Endpoints, request, ClientConfig.RequestTimeout);
                 var code = invocation.Response.Status.Code;
                 if (!rmq.Code.Ok.Equals(code))
                 {
                     throw new Exception($"Failed to query load assignment from server. Cause: {invocation.Response.Status.Message}");
                 }
-
-                Console.WriteLine(code);
                 return invocation.Response.Assignments.ToList();
             }
             catch (System.Exception e)
@@ -186,118 +229,9 @@ namespace Org.Apache.Rocketmq
             // Just return an empty list.
             return new List<rmq.Assignment>();
         }
-        
-        
-        private void ScanExpiredProcessQueue()
-        {
-            foreach (var item in _processQueueMap)
-            {
-                if (item.Value.Expired())
-                {
-                    Task.Run(async () =>
-                    {
-                        await ExecutePop0(item.Key);
-                    });
-                }
-            }
-        }
 
-        private void CheckAndUpdateAssignments(List<rmq::Assignment> assignments)
-        {
-            if (assignments.Count == 0)
-                return;
 
-            string topic = assignments[0].MessageQueue.Topic.Name;
-
-            // Compare to generate or cancel pop-cycles
-            List<rmq::Assignment> existing;
-            _topicAssignmentsMap.TryGetValue(topic, out existing);
-
-            foreach (var assignment in assignments)
-            {
-                if (null == existing || !existing.Contains(assignment))
-                {
-                    ExecutePop(assignment);
-                }
-            }
-
-            if (null != existing)
-            {
-                foreach (var assignment in existing)
-                {
-                    if (!assignments.Contains(assignment))
-                    {
-                        // Logger.Info($"Stop receiving messages from {assignment.MessageQueue.ToString()}");
-                        CancelPop(assignment);
-                    }
-                }
-            }
-
-        }
-
-        private void ExecutePop(rmq::Assignment assignment)
-        {
-            var processQueue = new ProcessQueue();
-            if (_processQueueMap.TryAdd(assignment, processQueue))
-            {
-                Task.Run(async () =>
-                {
-                    await ExecutePop0(assignment);
-                });
-            }
-        }
-
-        private async Task ExecutePop0(rmq::Assignment assignment)
-        {
-            // Logger.Info($"Start to pop {assignment.MessageQueue.ToString()}");
-            while (true)
-            {
-                try
-                {
-                    ProcessQueue processQueue;
-                    if (!_processQueueMap.TryGetValue(assignment, out processQueue))
-                    {
-                        break;
-                    }
-
-                    if (processQueue.Dropped)
-                    {
-                        break;
-                    }
-                    var request = WrapReceiveMessageRequest(GetReceptionBatchSize(),new MessageQueue(assignment.MessageQueue), _subscriptionExpressions[assignment.MessageQueue.Topic.Name], _pushSubscriptionSettings.GetLongPollingTimeout());
-                    
-                    var messageResult = await base.ReceiveMessage(request, new MessageQueue(assignment.MessageQueue), _pushSubscriptionSettings.GetLongPollingTimeout());
-                    processQueue.LastReceiveTime = System.DateTime.UtcNow;
-
-                    // TODO: cache message and dispatch them 
-                   
-                    foreach (var item in messageResult.Messages)
-                    {
-                        var consumerResult = await _messageListener.Consume(item).ConfigureAwait(false);
-                        
-                        Console.WriteLine($"Received messages from {item.ToString()}, result={consumerResult}");
-
-                        if (consumerResult == ConsumeResult.SUCCESS)
-                        {
-                            await Ack(item).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            var invisibleDuration = _pushSubscriptionSettings.GetRetryPolicy().GetNextAttemptDelay(item.DeliveryAttempt);
-                            
-                            Console.WriteLine(invisibleDuration);
-                            await ChangeInvisibleDuration(item, invisibleDuration);
-                        }
-                    }
-                }
-                catch (System.Exception e)
-                {
-                    Logger.Error(e,"Failed to pop messages from broker");
-                }
-            }
-        }
-        
-        private async Task ChangeInvisibleDuration(MessageView messageView, TimeSpan invisibleDuration)
+        public async Task ChangeInvisibleDuration(MessageView messageView, TimeSpan invisibleDuration)
         {
             if (State.Running != State)
             {
@@ -327,7 +261,7 @@ namespace Org.Apache.Rocketmq
             };
         }
 
-        private async Task Ack(MessageView messageView)
+        public async Task Ack(MessageView messageView)
         {
             if (State.Running != State)
                 throw new InvalidOperationException("push consumer is not running");
@@ -356,24 +290,7 @@ namespace Org.Apache.Rocketmq
             };
         }
 
-        private void CancelPop(rmq::Assignment assignment)
-        {
-            if (!_processQueueMap.ContainsKey(assignment))
-            {
-                return;
-            }
 
-            ProcessQueue processQueue;
-            if (_processQueueMap.Remove(assignment, out processQueue))
-            {
-                processQueue.Dropped = true;
-            }
-        }
-        
-        
-        
-        
-        
         protected override rmq.NotifyClientTerminationRequest WrapNotifyClientTerminationRequest()
         {
             return new rmq.NotifyClientTerminationRequest()
@@ -432,7 +349,7 @@ namespace Org.Apache.Rocketmq
         }
 
 
-        private int CacheMessageCountThresholdPerQueue()
+        public int CacheMessageCountThresholdPerQueue()
         {
             var size = _processQueueMap.Count;
             // All process queues are removed, no need to cache messages.
@@ -441,7 +358,7 @@ namespace Org.Apache.Rocketmq
             return Math.Max(1, _maxCacheMessageCount / size);
         }
 
-        private int GetReceptionBatchSize()
+        public int GetReceptionBatchSize()
         {
             return Math.Min(CacheMessageCountThresholdPerQueue(), _pushSubscriptionSettings.GetReceiveBatchSize());
         }

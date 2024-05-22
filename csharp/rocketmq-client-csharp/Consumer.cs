@@ -36,7 +36,7 @@ namespace Org.Apache.Rocketmq
             ConsumerGroup = consumerGroup;
         }
 
-        protected async Task<ReceiveMessageResult> ReceiveMessage(Proto.ReceiveMessageRequest request, MessageQueue mq,
+        public async Task<ReceiveMessageResult> ReceiveMessage(Proto.ReceiveMessageRequest request, MessageQueue mq,
             TimeSpan awaitDuration)
         {
             var tolerance = ClientConfig.RequestTimeout;
@@ -105,7 +105,7 @@ namespace Org.Apache.Rocketmq
         }
         
         
-        protected Proto.ReceiveMessageRequest WrapReceiveMessageRequest(int batchSize, MessageQueue mq,
+        public Proto.ReceiveMessageRequest WrapReceiveMessageRequest(int batchSize, MessageQueue mq,
             FilterExpression filterExpression, TimeSpan longPollingTimeout)
         {
             var group = new Proto.Resource

@@ -24,12 +24,13 @@ namespace examples
         public static void Main()
         {
             ProducerNormalMessageExample.QuickStart().Wait();
-            Thread.Sleep(3000);
+          
             // ProducerFifoMessageExample.QuickStart().Wait();
             // ProducerDelayMessageExample.QuickStart().Wait();
             // ProducerTransactionMessageExample.QuickStart().Wait();
             // SimpleConsumerExample.QuickStart().Wait();
             // ProducerBenchmark.QuickStart().Wait();
+            // Thread.Sleep(3000);
             PushConsumerExample.QuickStart().Wait();
 
         }

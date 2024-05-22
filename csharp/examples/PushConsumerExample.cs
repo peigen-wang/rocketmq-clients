@@ -44,7 +44,7 @@ internal static class PushConsumerExample
         public async Task<ConsumeResult> Consume(MessageView messages)
         {
             Console.WriteLine($"Received a message, topic={messages.Topic}, message-id={messages.MessageId}, body-size={messages.Body.Length}");
-            return await Task.FromResult(ConsumeResult.SUCCESS);
+            return await Task.FromResult(ConsumeResult.FAILURE);
         }
     }
 }
