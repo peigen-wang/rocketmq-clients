@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Apache.Rocketmq.V2;
 using NLog;
@@ -60,6 +62,7 @@ namespace Org.Apache.Rocketmq
 
         public void FetchMessageImmediately()
         {
+            Console.WriteLine($"FetchMessageImmediately{DateTime.Now}");
             var clientId = _pushConsumer.GetClientId();
             if (_pushConsumer.State != State.Running)
                 return;
@@ -84,27 +87,151 @@ namespace Org.Apache.Rocketmq
                 var messageResult = await _pushConsumer.ReceiveMessage(request, _messageQueue, _pushConsumer._pushSubscriptionSettings.GetLongPollingTimeout());
                 LastReceiveTime = DateTime.UtcNow;
                 
-                foreach (var item in messageResult.Messages)
-                {
-                    var consumerResult = await _pushConsumer._messageListener.Consume(item).ConfigureAwait(false);
-
-                    if (consumerResult == ConsumeResult.SUCCESS)
-                    {
-                        await _pushConsumer.Ack(item).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        var invisibleDuration = _pushConsumer._pushSubscriptionSettings.GetRetryPolicy().GetNextAttemptDelay(item.DeliveryAttempt);
-
-                        await _pushConsumer.ChangeInvisibleDuration(item, invisibleDuration);
-                    }
-                }
+                await ConsumeMessages(messageResult);
                 ReceiveMessage();
             }
             catch (Exception e)
             {
                 Logger.Error(e, $"[Bug] Exception raised while handling receive result, clientId={_pushConsumer.GetClientId()})");
                 ReceiveMessageLater(_pushConsumer._pushSubscriptionSettings.GetLongPollingTimeout());
+            }
+        }
+
+        private async Task ConsumeMessages(ReceiveMessageResult messageResult)
+        {
+            if (_pushConsumer._pushSubscriptionSettings.IsFifo())
+                //按顺序消费
+                await FifoConsumeMessages(messageResult.Messages);
+            StandardConsumeMessages(messageResult.Messages);
+        }
+
+        /// <summary>
+        /// 执行消费
+        /// </summary>
+        /// <param name="item"></param>
+        private async Task Consume(MessageView item)
+        {
+            try
+            {
+                var consumerResult = await _pushConsumer._messageListener.Consume(item).ConfigureAwait(false);
+
+                if (consumerResult == ConsumeResult.SUCCESS)
+                {
+                    await _pushConsumer.Ack(item).ConfigureAwait(false);
+                }
+                else
+                {
+                    var invisibleDuration = _pushConsumer._pushSubscriptionSettings.GetRetryPolicy().GetNextAttemptDelay(item.DeliveryAttempt);
+
+                    await _pushConsumer.ChangeInvisibleDuration(item, invisibleDuration);
+                }
+            }
+            catch (Exception e)
+            {
+                // TODO 存在处理异常的问题 暂时不做处理，让消息重新拉取消费
+                
+               Logger.Error(e, "Failed to consume message");
+            }
+        }
+
+        /// <summary>
+        /// 顺序消息处理
+        /// </summary>
+        /// <param name="messageResult"></param>
+        private async Task FifoConsumeMessages(List<MessageView> messageResult)
+        {
+            foreach (var item in messageResult.Where(item => !item.IsCorrupted()))
+            {
+                await ConsumeIteratively(item);
+            }
+        }
+
+        /// <summary>
+        /// 顺序消息消费
+        /// </summary>
+        /// <param name="item"></param>
+        private async Task ConsumeIteratively(MessageView item)
+        {
+            var result = ConsumeResult.FAILURE;
+            try
+            {
+                result = await _pushConsumer._messageListener.Consume(item).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Failed to consume message");
+            }
+
+            await EraseFifoMessage(item, result);
+        }
+
+        /// <summary>
+        /// 顺序消息消费 支持重试
+        /// 重试超过次数直接转发到死信队列
+        /// </summary>
+        /// <param name="messageView"></param>
+        /// <param name="consumeResult"></param>
+        private async Task EraseFifoMessage(MessageView messageView,ConsumeResult consumeResult)
+        {
+            var retryPolicy = _pushConsumer._pushSubscriptionSettings.GetRetryPolicy();
+            var maxAttempts = retryPolicy.GetMaxAttempts();
+            int attempt = messageView.DeliveryAttempt;
+            
+            switch (consumeResult)
+            {
+                case ConsumeResult.FAILURE when attempt < maxAttempts:
+                {
+                    var nextAttemptDelay = retryPolicy.GetNextAttemptDelay(attempt);
+                    messageView.AddDeliveryAttempt();
+
+                    await SetTimeout(async () =>
+                    {
+                        await ConsumeIteratively(messageView);
+                    }, nextAttemptDelay);
+                    break;
+                }
+                case ConsumeResult.SUCCESS:
+                    await _pushConsumer.Ack(messageView).ConfigureAwait(false);
+                    break;
+                default:
+                    await _pushConsumer.ForwardToDeadLetterQueue(messageView).ConfigureAwait(false);
+                    break;
+            }
+        }
+        
+
+        /// <summary>
+        /// 延迟执行
+        /// </summary>
+        /// <param name="action"></param>
+        /// <param name="delay"></param>
+        private async Task SetTimeout(Func<Task> action, TimeSpan delay)
+        {
+            await Task.Delay(delay);
+            await action();
+        }
+        
+        /// <summary>
+        /// 延迟执行
+        /// </summary>
+        /// <param name="action"></param>
+        /// <param name="delay"></param>
+        private async Task SetTimeout(Action action, TimeSpan delay)
+        {
+            await Task.Delay(delay); 
+            action();
+        }
+
+
+        /// <summary>
+        ///  普通消息处理
+        /// </summary>
+        /// <param name="messageResult"></param>
+        private void StandardConsumeMessages(List<MessageView> messageResult)
+        {
+            foreach (var item in messageResult.Where(item => !item.IsCorrupted()))
+            {
+                _ = Consume(item);
             }
         }
 
@@ -121,7 +248,7 @@ namespace Org.Apache.Rocketmq
         
         private void ReceiveMessageLater(TimeSpan delay)
         {
-            Task.Delay(delay).ContinueWith(t => ReceiveMessage());
+            SetTimeout(ReceiveMessage, delay).GetAwaiter().GetResult();
         }
     }
 }

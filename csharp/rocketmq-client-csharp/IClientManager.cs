@@ -101,6 +101,16 @@ namespace Org.Apache.Rocketmq
         /// <returns></returns>
         Task<RpcInvocation<AckMessageRequest, AckMessageResponse>> AckMessage(Endpoints endpoints,
             AckMessageRequest request, TimeSpan timeout);
+        
+        /// <summary>
+        /// Forward message to dead letter queue.
+        /// </summary>
+        /// <param name="endpoints"></param>
+        /// <param name="request"></param>
+        /// <param name="timeout"></param>
+        /// <returns></returns>
+        Task<RpcInvocation<ForwardMessageToDeadLetterQueueRequest, ForwardMessageToDeadLetterQueueResponse>> ForwardMessageToDeadLetterQueue(Endpoints endpoints,
+            ForwardMessageToDeadLetterQueueRequest request, TimeSpan timeout);
 
         /// <summary>
         /// Change message invisible duration.

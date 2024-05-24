@@ -75,18 +75,19 @@ namespace Org.Apache.Rocketmq
             
 
                 // Step-2: Scan load assignments that are assigned to current client
-                Schedule(async () =>
+                await Schedule(() =>
                 {
                     try
                     {
-                        await ScanLoadAssignments();
+                        // 异步调用 不用等待结果
+                        _ = ScanLoadAssignments();
                     }
                     catch (Exception e)
                     {
                         Logger.Error(e, $"Exception raised while scanning the load assignments, clientId={ClientId}");
                     }
                 }, 5, _scanAssignmentCTS.Token);
-                
+
             }
             catch (Exception)
             {
@@ -96,7 +97,13 @@ namespace Org.Apache.Rocketmq
             }
         }
         
-        private void Schedule(Action action, int seconds, CancellationToken token)
+        /// <summary>
+        /// Schedule a task to run periodically
+        /// </summary>
+        /// <param name="action"></param>
+        /// <param name="seconds"></param>
+        /// <param name="token"></param>
+        private async Task Schedule(Action action, int seconds, CancellationToken token)
         {
             if (null == action)
             {
@@ -106,8 +113,9 @@ namespace Org.Apache.Rocketmq
 
             while (!token.IsCancellationRequested)
             {
+                Console.WriteLine("Schedule action");
                 action();
-                Thread.Sleep(seconds * 1000);
+                await Task.Delay(seconds * 1000, token);
             }
         }
 
@@ -115,9 +123,10 @@ namespace Org.Apache.Rocketmq
         {
             _scanAssignmentCTS.Cancel();
             _scanExpiredProcessQueueCTS.Cancel();
-
+            State = State.Stopping;
             // Shutdown resources of derived class
             await base.Shutdown();
+            State = State.Terminated;
         }
 
         private async Task ScanLoadAssignments()
@@ -126,20 +135,22 @@ namespace Org.Apache.Rocketmq
             {
                 var topic = item.Key;
                 _topicAssignmentsMap.TryGetValue(topic, out var existing);
-                var future = await ScanLoadAssignment(item.Key, _consumerGroup);
-                if(future==null || !future.Any()) continue;
+                var assignments = await ScanLoadAssignment(item.Key, _consumerGroup);
+                if(assignments==null || !assignments.Any()) continue;
 
-                if (!future.Equals(existing))
+                if (!assignments.Equals(existing))
                 {
-                    _topicAssignmentsMap.TryAdd(topic, future);
+                    _topicAssignmentsMap.TryAdd(topic, assignments);
                 }
                 // Process queue may be dropped, need to be synchronized anyway.
-                SyncProcessQueue(topic, future, item.Value);
+                SyncProcessQueue(topic, assignments, item.Value);
             }
         }
         
         private void SyncProcessQueue(string topic, List<rmq::Assignment> assignments, FilterExpression filterExpression)
         {
+            Console.WriteLine("SyncProcessQueue");
+            
             if (assignments.Count == 0)
                 return;
 
@@ -270,6 +281,34 @@ namespace Org.Apache.Rocketmq
             var invocation = await ClientManager.AckMessage(messageView.MessageQueue.Broker.Endpoints, request, ClientConfig.RequestTimeout);
             StatusChecker.Check(invocation.Response.Status, request, invocation.RequestId);
         }
+
+        public async Task ForwardToDeadLetterQueue(MessageView messageView)
+        {
+            if (State.Running != State)
+                throw new InvalidOperationException("push consumer is not running");
+
+            var request = WarpForwardMessageToDeadLetterQueueRequest(messageView);
+            var invocation = await ClientManager.ForwardMessageToDeadLetterQueue(messageView.MessageQueue.Broker.Endpoints, request, ClientConfig.RequestTimeout);
+            StatusChecker.Check(invocation.Response.Status, request, invocation.RequestId);
+        }
+        
+        private rmq.ForwardMessageToDeadLetterQueueRequest WarpForwardMessageToDeadLetterQueueRequest(MessageView messageView)
+        {
+            var topicResource = new rmq.Resource
+            {
+                Name = messageView.Topic
+            };
+            return new rmq.ForwardMessageToDeadLetterQueueRequest
+            {
+                Group = GetProtobufGroup(),
+                Topic = topicResource,
+                ReceiptHandle = messageView.ReceiptHandle,
+                MessageId = messageView.MessageId,
+                DeliveryAttempt = messageView.DeliveryAttempt,
+                MaxDeliveryAttempts = _pushSubscriptionSettings.GetRetryPolicy().GetMaxAttempts()
+            };
+        }
+
 
         private rmq.AckMessageRequest WrapAckMessageRequest(MessageView messageView)
         {

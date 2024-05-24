@@ -36,6 +36,10 @@ namespace Org.Apache.Rocketmq
         private readonly long _offset;
         private readonly bool _corrupted;
 
+        public bool IsCorrupted() {
+            return _corrupted;
+        }
+        
         private MessageView(string messageId, string topic, byte[] body, string tag, string messageGroup,
             DateTime? deliveryTimestamp, List<string> keys, Dictionary<string, string> properties, string bornHost,
             DateTime bornTime, int deliveryAttempt, MessageQueue messageQueue, string receiptHandle, long offset,
@@ -78,7 +82,9 @@ namespace Org.Apache.Rocketmq
 
         public DateTime BornTime { get; }
 
-        public int DeliveryAttempt { get; }
+        public int DeliveryAttempt { set; get; }
+
+        public int AddDeliveryAttempt() => ++DeliveryAttempt;
 
         public static MessageView FromProtobuf(Proto.Message message, MessageQueue messageQueue = null)
         {
