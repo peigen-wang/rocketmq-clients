@@ -62,7 +62,6 @@ namespace Org.Apache.Rocketmq
 
         public void FetchMessageImmediately()
         {
-            Console.WriteLine($"FetchMessageImmediately{DateTime.Now}");
             var clientId = _pushConsumer.GetClientId();
             if (_pushConsumer.State != State.Running)
                 return;
@@ -86,7 +85,6 @@ namespace Org.Apache.Rocketmq
             {
                 var messageResult = await _pushConsumer.ReceiveMessage(request, _messageQueue, _pushConsumer._pushSubscriptionSettings.GetLongPollingTimeout());
                 LastReceiveTime = DateTime.UtcNow;
-                
                 await ConsumeMessages(messageResult);
                 ReceiveMessage();
             }

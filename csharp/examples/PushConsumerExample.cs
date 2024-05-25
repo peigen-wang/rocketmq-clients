@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using NLog;
 using Org.Apache.Rocketmq;
@@ -32,7 +33,7 @@ internal static class PushConsumerExample
         var subscription = new Dictionary<string, FilterExpression>
             { { topic, new FilterExpression("*") } };
         // In most case, you don't need to create too many consumers, single pattern is recommended.
-        var pushConsumer = new PushConsumer(clientConfig, consumerGroup, 10, new ConcurrentDictionary<string, FilterExpression>(subscription), new TestMessageListener());
+        var pushConsumer = new PushConsumer(clientConfig, consumerGroup, 1, new ConcurrentDictionary<string, FilterExpression>(subscription), new TestMessageListener());
         pushConsumer.DoStart().GetAwaiter().GetResult();
         
     }
@@ -43,7 +44,9 @@ internal static class PushConsumerExample
     {
         public async Task<ConsumeResult> Consume(MessageView messages)
         {
-            Console.WriteLine($"Received message: {messages}");
+            await Task.Delay(1000);
+            var body = Encoding.UTF8.GetString(messages.Body);
+            Console.WriteLine($"Received message: {messages}, body: {body}");
             return await Task.FromResult(ConsumeResult.SUCCESS);
         }
     }

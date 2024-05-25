@@ -113,7 +113,6 @@ namespace Org.Apache.Rocketmq
 
             while (!token.IsCancellationRequested)
             {
-                Console.WriteLine("Schedule action");
                 action();
                 await Task.Delay(seconds * 1000, token);
             }
@@ -149,8 +148,6 @@ namespace Org.Apache.Rocketmq
         
         private void SyncProcessQueue(string topic, List<rmq::Assignment> assignments, FilterExpression filterExpression)
         {
-            Console.WriteLine("SyncProcessQueue");
-            
             if (assignments.Count == 0)
                 return;
 

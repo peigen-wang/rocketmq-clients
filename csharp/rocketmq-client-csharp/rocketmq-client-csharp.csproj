@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <PackageId>PenGen.RocketMQ.Client</PackageId>
-        <PackageVersion>1.0.8</PackageVersion>
+        <PackageVersion>1.1.0</PackageVersion>
         <Version>$(PackageVersion)</Version>
 
         <Authors>Peigen</Authors>
